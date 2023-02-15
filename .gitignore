@@ -1,4 +1,14 @@
 /checkpoints
 /checkpoints_bert
 /data
-/.ipynb_checkpoints
+/.ipynb_checkpoints.DS_Store
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
