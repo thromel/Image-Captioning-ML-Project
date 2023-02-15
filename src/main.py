@@ -169,7 +169,7 @@ def train(config, checkpoint_path=None, device="cuda"):
 
     # Load data
     logger.info("Loading datasets...")
-    train_loader, val_loader = build_coco_dataloaders(
+    train_loader, val_loader, curriculum_sampler = build_coco_dataloaders(
         config,
         tokenizer,
         transform_train=transform_train,
@@ -187,7 +187,8 @@ def train(config, checkpoint_path=None, device="cuda"):
         train_loader=train_loader,
         val_loader=val_loader,
         tokenizer=tokenizer,
-        device=device
+        device=device,
+        curriculum_sampler=curriculum_sampler
     )
 
     # Load checkpoint if provided
@@ -233,7 +234,7 @@ def evaluate(config, checkpoint_path=None, device="cuda"):
 
     # Load data
     logger.info("Loading datasets...")
-    _, val_loader = build_coco_dataloaders(
+    _, val_loader, _ = build_coco_dataloaders(
         config,
         tokenizer,
         transform_val=transform_eval

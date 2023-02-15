@@ -391,9 +391,22 @@ def build_coco_dataloaders(
     config,
     tokenizer: PreTrainedTokenizer,
     transform_train=None,
-    transform_val=None
+    transform_val=None,
+    use_curriculum: bool = None
 ):
-    """Build dataloaders for COCO dataset."""
+    """
+    Build dataloaders for COCO dataset.
+
+    Args:
+        config: Configuration object
+        tokenizer: Tokenizer for processing captions
+        transform_train: Transform for training images
+        transform_val: Transform for validation images
+        use_curriculum: Whether to use curriculum learning (overrides config if provided)
+
+    Returns:
+        Tuple of (train_loader, val_loader, curriculum_sampler)
+    """
     # Create datasets
     train_dataset = COCOCaptionDataset(
         root_dir=config.data_root,
@@ -415,14 +428,38 @@ def build_coco_dataloaders(
         is_training=False
     )
 
+    # Check if curriculum learning should be used
+    if use_curriculum is None:
+        use_curriculum = config.training.use_curriculum
+
+    # Create curriculum sampler if requested
+    curriculum_sampler = None
+    if use_curriculum:
+        try:
+            from ..train.curriculum import create_curriculum_sampler
+            curriculum_sampler = create_curriculum_sampler(train_dataset, config)
+        except ImportError:
+            print("Warning: Curriculum learning module not available, using standard sampling")
+
     # Create dataloaders
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=config.training.batch_size,
-        shuffle=True,
-        num_workers=config.num_workers,
-        pin_memory=True
-    )
+    if curriculum_sampler is not None:
+        # Use curriculum sampler (no shuffle when using custom sampler)
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=config.training.batch_size,
+            sampler=curriculum_sampler,
+            num_workers=config.num_workers,
+            pin_memory=True
+        )
+    else:
+        # Standard random sampling
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=config.training.batch_size,
+            shuffle=True,
+            num_workers=config.num_workers,
+            pin_memory=True
+        )
 
     val_loader = DataLoader(
         val_dataset,
@@ -432,4 +469,4 @@ def build_coco_dataloaders(
         pin_memory=True
     )
 
-    return train_loader, val_loader
+    return train_loader, val_loader, curriculum_sampler

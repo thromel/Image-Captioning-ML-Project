@@ -16,6 +16,7 @@ from transformers import get_linear_schedule_with_warmup, get_cosine_schedule_wi
 from ..config import Config
 from ..models.captioning_model import ImageCaptioningModel
 from ..evaluate.metrics import calculate_metrics
+from .losses import CombinedLoss
 
 
 class CaptioningTrainer:
@@ -28,7 +29,8 @@ class CaptioningTrainer:
         train_loader: DataLoader,
         val_loader: DataLoader,
         tokenizer,
-        device: str = None
+        device: str = None,
+        curriculum_sampler=None
     ):
         """
         Initialize the trainer.
@@ -40,12 +42,14 @@ class CaptioningTrainer:
             val_loader: DataLoader for validation data
             tokenizer: Tokenizer for converting between IDs and text
             device: Device to use for training ('cuda' or 'cpu')
+            curriculum_sampler: Optional curriculum learning sampler
         """
         self.config = config
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.tokenizer = tokenizer
+        self.curriculum_sampler = curriculum_sampler
 
         # Set device
         self.device = device or config.device
@@ -65,6 +69,17 @@ class CaptioningTrainer:
         # Automatic mixed precision
         self.use_amp = config.training.use_amp
         self.scaler = GradScaler() if self.use_amp else None
+
+        # Create combined loss function with auxiliary losses
+        self.loss_fn = CombinedLoss(
+            pad_token_id=model.decoder.pad_token_id,
+            use_contrastive=config.training.use_contrastive_loss,
+            use_itm=config.training.use_itm_loss,
+            contrastive_weight=0.1,
+            itm_weight=0.1,
+            temperature=0.07,
+            hidden_dim=config.model.projection_dim
+        )
 
         # Output directories
         self.output_dir = Path(config.output_dir)
@@ -154,6 +169,11 @@ class CaptioningTrainer:
             self.logger.info(
                 f"Epoch {epoch + 1}/{self.config.training.num_epochs}")
 
+            # Update curriculum sampler if using curriculum learning
+            if self.curriculum_sampler is not None:
+                self.curriculum_sampler.set_epoch(epoch)
+                self.logger.info(f"Curriculum learning: using {len(self.curriculum_sampler)} samples")
+
             # Train for one epoch
             train_loss = self._train_epoch(epoch)
 
@@ -212,22 +232,22 @@ class CaptioningTrainer:
                         caption_lengths=None
                     )
 
-                    # Calculate loss
+                    # Calculate loss with auxiliary losses
                     logits = outputs['logits']
                     targets = batch['caption_tokens']
 
-                    # Shift logits and targets for language modeling task
-                    # We predict each next token based on previous tokens
-                    shift_logits = logits[..., :-1, :].contiguous()
-                    shift_targets = targets[..., 1:].contiguous()
+                    # Get pooled features for contrastive/ITM losses if available
+                    image_features = outputs.get('pooled_features', None)
+                    text_features = outputs.get('text_features', None)
 
-                    # Calculate loss
-                    loss_fct = nn.CrossEntropyLoss(
-                        ignore_index=self.model.decoder.pad_token_id)
-                    loss = loss_fct(
-                        shift_logits.view(-1, shift_logits.size(-1)),
-                        shift_targets.view(-1)
+                    # Calculate combined loss
+                    loss_dict = self.loss_fn(
+                        logits=logits,
+                        targets=targets,
+                        image_features=image_features,
+                        text_features=text_features
                     )
+                    loss = loss_dict['total_loss']
 
                 # Backward and optimize with scaler
                 self.scaler.scale(loss).backward()
@@ -241,21 +261,22 @@ class CaptioningTrainer:
                     caption_lengths=None
                 )
 
-                # Calculate loss
+                # Calculate loss with auxiliary losses
                 logits = outputs['logits']
                 targets = batch['caption_tokens']
 
-                # Shift logits and targets for language modeling task
-                shift_logits = logits[..., :-1, :].contiguous()
-                shift_targets = targets[..., 1:].contiguous()
+                # Get pooled features for contrastive/ITM losses if available
+                image_features = outputs.get('pooled_features', None)
+                text_features = outputs.get('text_features', None)
 
-                # Calculate loss
-                loss_fct = nn.CrossEntropyLoss(
-                    ignore_index=self.model.decoder.pad_token_id)
-                loss = loss_fct(
-                    shift_logits.view(-1, shift_logits.size(-1)),
-                    shift_targets.view(-1)
+                # Calculate combined loss
+                loss_dict = self.loss_fn(
+                    logits=logits,
+                    targets=targets,
+                    image_features=image_features,
+                    text_features=text_features
                 )
+                loss = loss_dict['total_loss']
 
                 # Backward and optimize
                 loss.backward()
@@ -266,13 +287,25 @@ class CaptioningTrainer:
 
             # Update progress bar
             epoch_loss += loss.item()
-            progress_bar.set_postfix({'loss': epoch_loss / (i + 1)})
+
+            # Prepare detailed loss info for logging
+            loss_info = {'total': epoch_loss / (i + 1)}
+            if self.config.training.use_contrastive_loss and 'contrastive_loss' in loss_dict:
+                loss_info['cont'] = loss_dict['contrastive_loss'].item()
+            if self.config.training.use_itm_loss and 'itm_loss' in loss_dict:
+                loss_info['itm'] = loss_dict['itm_loss'].item()
+
+            progress_bar.set_postfix(loss_info)
 
             # Log every config.log_every batches
             if (i + 1) % self.config.log_every == 0:
-                self.logger.info(f"Epoch {epoch + 1}, Batch {i + 1}/{num_batches}, "
-                                 f"Loss: {loss.item():.4f}, "
-                                 f"LR: {self.scheduler.get_last_lr()[0]:.6f}")
+                log_msg = f"Epoch {epoch + 1}, Batch {i + 1}/{num_batches}, Loss: {loss.item():.4f}"
+                if self.config.training.use_contrastive_loss and 'contrastive_loss' in loss_dict:
+                    log_msg += f", Contrastive: {loss_dict['contrastive_loss'].item():.4f}"
+                if self.config.training.use_itm_loss and 'itm_loss' in loss_dict:
+                    log_msg += f", ITM: {loss_dict['itm_loss'].item():.4f}"
+                log_msg += f", LR: {self.scheduler.get_last_lr()[0]:.6f}"
+                self.logger.info(log_msg)
 
         # Calculate average loss for the epoch
         avg_loss = epoch_loss / num_batches
@@ -415,13 +448,40 @@ class CaptioningTrainer:
         Returns:
             Tensor of rewards for each caption
         """
-        # Calculate CIDEr scores using pycocoevalcap
-        # This is a simplified implementation
-        # In practice, we would use the full evaluation module
+        # Calculate rewards using the configured metric
+        reward_type = self.config.training.rl_reward.lower()
 
-        # For now, just return dummy scores
-        # Replace this with actual metric calculation
-        return torch.randn(len(generated_captions), device=self.device)
+        # Calculate metrics for generated captions
+        metrics = calculate_metrics(generated_captions, gt_captions)
+
+        # Get the reward based on the configured reward type
+        if reward_type == "cider":
+            # CIDEr is the most commonly used reward for SCST
+            reward_values = metrics.get("CIDEr", 0.0)
+        elif reward_type == "bleu":
+            # Use BLEU-4 as the reward
+            reward_values = metrics.get("Bleu_4", 0.0)
+        elif reward_type == "meteor":
+            reward_values = metrics.get("METEOR", 0.0)
+        elif reward_type == "rouge":
+            reward_values = metrics.get("ROUGE_L", 0.0)
+        elif reward_type == "spice":
+            reward_values = metrics.get("SPICE", 0.0)
+        else:
+            # Default to CIDEr
+            self.logger.warning(f"Unknown reward type '{reward_type}', using CIDEr")
+            reward_values = metrics.get("CIDEr", 0.0)
+
+        # Convert to tensor - handle both per-sample and batch-average rewards
+        if isinstance(reward_values, (int, float)):
+            # If it's a single value (average), repeat for each sample
+            rewards = torch.full((len(generated_captions),), reward_values,
+                                device=self.device, dtype=torch.float32)
+        else:
+            # If it's already per-sample rewards
+            rewards = torch.tensor(reward_values, device=self.device, dtype=torch.float32)
+
+        return rewards
 
     def _validate_epoch(self, epoch: int) -> Tuple[float, Dict[str, float]]:
         """
