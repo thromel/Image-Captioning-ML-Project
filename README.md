@@ -1,129 +1,120 @@
-# Image Captioning using "Show, Attend and Tell"
+# Modern Image Captioning System
 
-This repository contains the implementation of an Image Captioning model based on the paper ["Show, Attend and Tell"](https://arxiv.org/abs/1502.03044) by Kelvin Xu et al. The model is trained to generate captions for given images using an attention-based encoder-decoder network.
-
-## About the Model
-
-"Show, Attend and Tell" is a neural network model for image captioning that uses an attention-based encoder-decoder architecture. The model first encodes the image using a Convolutional Neural Network (CNN), which is followed by a recurrent neural network (RNN) that generates the caption word by word. Additionally, the model uses an attention mechanism that allows it to focus on different parts of the image at different time steps, resulting in more accurate and detailed captions.
-
-### Architecture Overview
-
-The project implements:
-
-1. **Encoder**: A CNN-based feature extractor (ResNet-101) that processes input images
-2. **Attention Mechanism**: Allows the model to focus on different parts of the image
-3. **Decoder**: An LSTM-based sequence generator with optional BERT embeddings
-
-## Dataset
-
-The model is trained on the MS-COCO (Microsoft Common Objects in Context) dataset, which consists of images and corresponding captions. The dataset contains over 330,000 images with 5 captions each, resulting in a total of 1.6 million captions. We have used a preprocessed version of the dataset that has been converted into numerical representations.
+This repository contains an implementation of a modern image captioning system with various architecture options including transformers, self-attention mechanisms, and pretrained language models.
 
 ## Features
 
-- **Attention Visualization**: Visualize which parts of the image the model focuses on
-- **BERT Integration**: Option to use BERT embeddings for enhanced semantic understanding
-- **Checkpoint System**: Ability to resume training from checkpoints
-- **Comprehensive Evaluation**: BLEU score metrics for caption quality assessment
+- **Modular Architecture**: Mix and match encoders, decoders, and attention mechanisms
+- **Multiple Vision Encoders**: ResNet, ViT, Swin Transformer, CLIP
+- **Multiple Decoders**: LSTM, Transformer, GPT-2
+- **Advanced Attention**: Soft Attention, Multi-Head Attention, Adaptive Attention, Attention-on-Attention
+- **Reinforcement Learning**: Self-Critical Sequence Training support
+- **Modern Techniques**: BLIP-2 style Q-Former, contrastive learning, curriculum learning
 
-## Dependencies
+## Installation
 
-The code is implemented in Python 3.7 using the following libraries:
-
-- PyTorch 1.9.0
-- torchvision 0.10.0
-- NumPy 1.19.5
-- NLTK 3.6.3
-- Pillow 8.3.2
-- pycocotools
-- pytorch-pretrained-bert
-
-## Project Structure
-
-```
-Project Structure
-├── models/
-│   ├── encoder.py - ResNet-based image encoder
-│   ├── decoder.py - LSTM-based caption decoder with attention
-│   ├── loss.py - Loss tracking class
-│   └── constants.py - Token constants (PAD, START, END, UNK)
-├── data_loader.py - Data loading and processing utilities
-├── processData.py - Dataset preparation and vocabulary handling
-├── train.py - Training script
-├── validate.py - Validation script
-├── demo.py - Inference script for caption generation
-└── demo.ipynb - Jupyter notebook for interactive demonstration
-```
-
-## Usage
-
-### Training the Model
-
-To train the model, run the following command:
+Clone the repository and install the required dependencies:
 
 ```bash
-python train.py
+git clone https://github.com/your-username/Image-Captioning-ML-Project.git
+cd Image-Captioning-ML-Project
+pip install -r requirements.txt
 ```
 
-This will start the training process and save the model weights after each epoch in the checkpoints folder. The training process includes:
+## Dataset Preparation
 
-- Gradient clipping at 5.0
-- Batch size of 16
-- Learning rate (decoder) of 0.0004
-- 4 training epochs
-- Adam optimizer
-- Learning rate decay of 0.8 every 1000 batches
-- Checkpoint saving
+The system expects the COCO dataset in the following structure:
 
-### Validation
+```
+data/
+  ├── train2014/       # Training images
+  ├── val2014/         # Validation images
+  └── annotations/
+      ├── captions_train2014.json  # Training annotations
+      └── captions_val2014.json    # Validation annotations
+```
 
-To validate the model on the validation set, run:
+Download the COCO dataset from [the official website](https://cocodataset.org/#download) and extract it to the `data` directory.
+
+## Training
+
+To train the model with default settings:
 
 ```bash
-python validate.py
+python src/main.py --mode train --data_root /path/to/data
 ```
 
-This will evaluate the model on the validation set and report BLEU scores.
-
-### Generating Captions
-
-To generate captions for new images, run:
+To use a specific encoder, decoder, and attention mechanism:
 
 ```bash
-python demo.py --image_path <path_to_image_file>
+python src/main.py --mode train --data_root /path/to/data \
+                   --encoder_type vit --decoder_type gpt2 --attention_type multi_head
 ```
 
-Replace `<path_to_image_file>` with the path to the image file for which you want to generate the caption. The script will:
+To use reinforcement learning:
 
-1. Preprocess the image
-2. Feed it to the trained model
-3. Generate a caption for the image
-4. Optionally visualize attention weights
+```bash
+python src/main.py --mode train --data_root /path/to/data --use_rl
+```
 
-## Technical Documentation
+To save and load a configuration:
 
-For comprehensive technical details about the architecture, implementation, and workflows, please see the [Technical Architecture Documentation](docs/technical_architecture.md).
+```bash
+python src/main.py --mode train --data_root /path/to/data --save_config config.json
+python src/main.py --mode train --config config.json
+```
 
-## Performance Considerations
+## Evaluation
 
-- GPU acceleration recommended for training
-- BERT embeddings provide better semantic understanding but increase computational requirements
-- Attention mechanism adds computational overhead but significantly improves caption quality
-- Batch size may need adjustment based on available GPU memory
+To evaluate a trained model:
 
-## Future Enhancements
+```bash
+python src/main.py --mode eval --data_root /path/to/data --checkpoint /path/to/checkpoint.pth
+```
 
-1. Ensemble Models
-2. Transformer-based architectures
-3. Fine-tuning on domain-specific datasets
-4. Beam search for inference
-5. REST API service integration
+## Demo
 
-## Acknowledgments
+To run a demo with a single image:
 
-We would like to thank Kelvin Xu et al. for their paper "Show, Attend and Tell" and the MS-COCO dataset for providing the data for this project. We have also used some code snippets from the PyTorch tutorial on Image Captioning.
+```bash
+python src/main.py --mode demo --checkpoint /path/to/checkpoint.pth --image_path /path/to/image.jpg
+```
 
-## References
+## Configuration
 
-1. Xu, K., Ba, J., Kiros, R., Cho, K., Courville, A., Salakhudinov, R., Zemel, R., & Bengio, Y. (2015). Show, Attend and Tell: Neural Image Caption Generation with Visual Attention. *Proceedings of the 32nd International Conference on Machine Learning*.
-2. MS-COCO Dataset: https://cocodataset.org/
-3. BERT: Devlin, J., Chang, M.W., Lee, K., & Toutanova, K. (2018). BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding. *arXiv preprint arXiv:1810.04805*.
+The model can be customized through a variety of configuration options. See `src/config.py` for all available options.
+
+Key configuration categories:
+- Encoder options (type, feature dimension, pretrained model)
+- Decoder options (type, number of layers, hidden dimensions)
+- Attention options (type, number of heads, temperature)
+- Training options (batch size, learning rate, reinforcement learning)
+- Inference options (beam size, decoding strategy, reranking)
+
+## Architecture Details
+
+The system follows a modular encoder-decoder architecture:
+
+1. **Vision Encoder**: Extracts features from images using modern vision models
+2. **Query-Former (Optional)**: Transforms visual features into a fixed set of query tokens
+3. **Attention Mechanism**: Computes attention between decoder states and visual features
+4. **Text Decoder**: Generates captions based on visual features
+
+## Citation
+
+If you use this code in your research, please cite:
+
+```
+@misc{modern-image-captioning-2023,
+  author = {Your Name},
+  title = {Modern Image Captioning System},
+  year = {2023},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{https://github.com/your-username/Image-Captioning-ML-Project}}
+}
+```
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

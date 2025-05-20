@@ -1,0 +1,9 @@
+torch>=1.10.0
+torchvision>=0.11.0
+transformers>=4.20.0
+pillow>=8.0.0
+numpy>=1.20.0
+tqdm>=4.50.0
+matplotlib>=3.3.0
+pycocoevalcap>=1.2  # Optional for evaluation metrics
+pycocotools>=2.0.0  # Optional for COCO evaluation 
